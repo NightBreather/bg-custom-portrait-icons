@@ -1,0 +1,87 @@
+BACKUP ~example/backup~
+AUTHOR ~NightBreather~
+
+// ===========================================================================
+//  Custom portrait icons that show on the sidebar AND in the character
+//  record ("Affects") list.
+//
+//  How it works
+//  ------------
+//  A portrait icon is an effect with opcode 142, parameter2 = N.
+//  The engine resolves N as:
+//      N = 0..190  -> STATES.BAM, sequence (N + 65)
+//      N >= 191    -> the BAM in STATDESC.2DA, column 3
+//  The character-record screen always uses the STATES.BAM path, so to make
+//  custom art appear there you must:
+//      1. put the art in STATES.BAM at sequence (N + 65);
+//      2. leave STATDESC.2DA column 3 EMPTY ("****") for row N;
+//      3. set the effect's opcode 142, parameter2 = N.
+//
+//  This example uses the unused indices 179..182 (their vanilla STATDESC
+//  rows are "-1 ****").  example/states.bam is a vanilla STATES.BAM with
+//  four extra frames whose sequences 244..247 (179+65 .. 182+65) point at
+//  them; it is produced with example/lib/states_icon_add.py:
+//
+//      weidu --biff-get states.bam
+//      python3 example/lib/states_icon_add.py states.bam example/states.bam \
+//              179:example/icons/roman-shield.png:3aa0ff \
+//              180:example/icons/spider-alt.png:b400dc \
+//              181:example/icons/poison-bottle.png:00c83c \
+//              182:example/icons/flame.png:ff7800
+// ===========================================================================
+
+AUTO_TRA ~example/tra/%s~
+
+LANGUAGE ~English~
+         ~english~
+         ~example/tra/english.tra~
+
+LANGUAGE ~Turkce~
+         ~turkish~
+         ~example/tra/turkish.tra~
+
+BEGIN @1 // component name
+
+// --- 1) the modified STATES.BAM (frames + repointed sequences) -------------
+COPY ~example/states.bam~ ~override~
+
+// --- 2) STATDESC.2DA rows: text strref + EMPTY BAM column ------------------
+OUTER_SET res_str = RESOLVE_STR_REF ( @10 )
+OUTER_SET spd_str = RESOLVE_STR_REF ( @11 )
+OUTER_SET ret_str = RESOLVE_STR_REF ( @12 )
+OUTER_SET fury_str = RESOLVE_STR_REF ( @13 )
+
+COPY_EXISTING ~statdesc.2da~ ~override~
+  COUNT_2DA_ROWS 3 rows
+  FOR (i = 0; i < rows; i += 1) BEGIN
+    READ_2DA_ENTRY i 0 3 key
+    PATCH_IF (~%key%~ STRING_EQUAL ~179~) BEGIN
+      SET_2DA_ENTRY i 1 3 res_str
+      SET_2DA_ENTRY i 2 3 ~****~   // MUST stay empty
+    END ELSE PATCH_IF (~%key%~ STRING_EQUAL ~180~) BEGIN
+      SET_2DA_ENTRY i 1 3 spd_str
+      SET_2DA_ENTRY i 2 3 ~****~
+    END ELSE PATCH_IF (~%key%~ STRING_EQUAL ~181~) BEGIN
+      SET_2DA_ENTRY i 1 3 ret_str
+      SET_2DA_ENTRY i 2 3 ~****~
+    END ELSE PATCH_IF (~%key%~ STRING_EQUAL ~182~) BEGIN
+      SET_2DA_ENTRY i 1 3 fury_str
+      SET_2DA_ENTRY i 2 3 ~****~
+    END
+  END
+  PRETTY_PRINT_2DA
+BUT_ONLY
+
+// --- 3) apply an icon to an effect -----------------------------------------
+//   opcode 142, parameter2 = 179 (or 180/181/182).
+//   Uncomment and point at your own spell:
+//
+// COPY_EXISTING ~spwi101.spl~ ~override~
+//   LPF ADD_SPELL_EFFECT INT_VAR
+//       opcode     = 142
+//       target     = 1
+//       timing     = 0
+//       duration   = 12
+//       parameter2 = 179
+//   END
+// BUT_ONLY

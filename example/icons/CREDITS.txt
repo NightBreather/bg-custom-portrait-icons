@@ -1,0 +1,15 @@
+Example icons
+=============
+
+The PNG files in this folder are from https://game-icons.net and are licensed
+under the Creative Commons Attribution 3.0 Unported licence (CC BY 3.0):
+
+  roman-shield.png  - "Roman shield" by Delapouite
+  spider-alt.png    - "Spider alt"  by Lorc
+  poison-bottle.png - "Poison bottle" by Delapouite
+  flame.png         - "Flame" by Carl Olsen
+
+https://creativecommons.org/licenses/by/3.0/
+
+They are provided only as 13x13 grayscale source art for the example.  Replace
+them with your own artwork for a real mod.
