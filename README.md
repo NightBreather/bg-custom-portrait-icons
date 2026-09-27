@@ -81,6 +81,60 @@ python3 example/lib/states_icon_add.py states.bam override/states.bam \
 
 See [`example/setup-portrait_icon.tp2`](example/setup-portrait_icon.tp2).
 
+## Limits and experimental findings
+
+Everything below is the result of tests that probe the engine's actual limits
+(BG:EE v2.7.3.2).
+
+### 1) Index resolution and limit table
+
+| Path | Format | Max index | Sidebar (portrait) | Record ("Affects") |
+|------|--------|-----------|--------------------|--------------------|
+| `STATES.BAM` | V1 (inline pixels) | **189** | ✅ | ✅ |
+| `STATDESC.2DA` col-3 BAM | any | high (tested to 600) | ✅ | ❌ falls back to Haste |
+| `STATES.BAM` | V2 (PVRZ texture) | ~600+ (theoretical) | ? | ? (untested) |
+
+### 2) Why `STATES.BAM` stops at 189
+
+- In a **BAM V1** header the cycle (sequence) count is a **single byte** at `0x0A`
+  → at most **255 sequences**.
+- Since icons map to sequence `N + 65`, `N + 65 ≤ 254` → **`N ≤ 189`**.
+- The vanilla `ui.menu` (see `PATCH20.BIF`) always asks the record screen for
+  `states.bam` sequence `index + 65`; for `N ≥ 190` that sequence does not exist
+  → generic Haste icon.
+
+### 3) The `STATDESC` BAM path (sidebar only)
+
+- `opcode 142, parameter2 = N` with `N ≥ 191` makes the **sidebar** draw the BAM
+  named in `STATDESC.2DA` column 3.
+- **Test:** distinct icons at indices 160…600 all rendered **without issues** on
+  the sidebar; `STATDESC.2DA` was extended to 600 rows with **no crash**. The
+  record screen does not use this path (shows Haste instead).
+- Adding rows to `STATDESC.2DA` alone (without icons) is also safe (tested to 601 rows).
+
+### 4) Why BAM V2 is not a solution yet
+
+- A **BAM V2** header stores the cycle count as a **dword** → >255 sequences are
+  possible in principle.
+- However V2 frames reference **PVRZ** textures (`MOSxxxx.PVRZ`); there are no
+  inline pixels. Producing a V2 `STATES.BAM` therefore needs a **PVR
+  (PVRTC/ETC) encoder**. Not tested here.
+
+### 5) Practical conclusion
+
+- To make an icon appear in **both** the sidebar and the record screen: put the
+  art in `STATES.BAM` at sequence `N+65` and keep `STATDESC.2DA` row `N` column 3
+  **empty (`****`)**.
+- Safe usable range: **`160 … 189`** (recommended: `164 … 189`, since `160…163`
+  and `188…189` may be occupied in some setups) → **~26 icons**.
+
+### 6) Related notes
+
+- **Resrefs are limited to 8 characters** (SPL/BAM/…); longer names crash the engine.
+- The `states_icon_add.py` here can be extended to support **multi-tone (ramp)**
+  icons instead of a single colour; a ramp allocates a few palette slots per icon
+  (the vanilla `STATES.BAM` has ~179 free slots).
+
 ## Files
 
 ```
