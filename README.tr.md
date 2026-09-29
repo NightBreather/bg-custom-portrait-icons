@@ -1,143 +1,190 @@
 # Baldur's Gate: Enhanced Edition'da özel portre ikonları
 
-### …hem **sidebar'da** hem de **karakter kayıt penceresinin "Etkiler" listesinde** görünen.
+### …`STATES.BAM`'e hiç dokunmadan, hem **portre yanında** hem **karakter kaydı "Etkiler" listesinde** görünen ikonlar.
 
 İngilizce sürüm: [`README.md`](README.md)
 
 ---
 
-## Sorun
+## Özet
 
-Özel bir portre ikonunu "alışıldık" yolla eklemek (`STATDESC.2DA` 3. sütuna bir BAM
-koymak) ikonu **portrenin yanında / sidebar'da** gösterir; ancak **karakter kayıt
-penceresi** jenerik bir ikon (Haste) çizmeye devam eder. Büyük modlar dahil birçok
-mod bu sınırlamayla yaşar. Bu depo, mekanizmayı ve özel ikonları **iki yerde de**
-çalıştıran küçük bir tarifi belgeler.
+Özel bir portre/durum ikonu **yalnız `STATDESC.2DA` ile** eklenebilir: satırın 3. kolonuna
+kendi BAM'ini koy ve `opcode 142`'yi o satıra yönelt. **Vanilla UI**'da ikon hem portre
+yanında (sidebar) hem de karakter kaydı "Etkiler" listesinde görünür. `STATES.BAM`'i
+düzenlemek **gerekmez** — böylece 255 dizi tavanı ve başka modların da patch'lediği
+paylaşılan bir dosyayı ezme riski ortadan kalkar.
+
+Sık tekrarlanan *"özel ikon portrede görünür ama kayıt ekranında görünmez"* iddiası
+**vanilla bir sınırlama değildir**. Sebep, kendi **eski `UI.MENU`'sunu** getirip o listede
+`STATES.BAM`'i sabitleyen **UI değiştirme modlarıdır**. Aşağıda böyle bir mod ve 3 satırlık
+düzeltmesi belgelenmiştir.
 
 ## Motor bir portre ikonunu nasıl çözer
 
-Bir portre ikonu, **opcode `142`** kullanan bir efektle istenir; burada
-`parameter2 = N` ikon indeksidir. Motor `N`'i iki kaynaktan çözer:
+Portre ikonunu isteyen şey `opcode 142`'dir; `parameter2 = N` ikon indeksidir. Bir `N` için:
 
-| indeks `N`     | çizildiği kaynak |
-|----------------|------------------|
-| `0 … 190`      | `STATES.BAM`, **sequence `N + 65`** |
-| `191 …`        | `STATDESC.2DA` 3. sütununda (`BAM_FILE`) adı geçen BAM |
+| Koşul | İkonun kaynağı |
+|-------|----------------|
+| `STATDESC.2DA` satır `N`, 3. kolon bir BAM adı içeriyor | **o BAM** — **birebir** kullanılır (son harf değiştirilmez). **Her** `N` için geçerlidir. |
+| 3. kolon boş (`****`) | `STATES.BAM`, **dizi `N + 65`** (BAM V1: dizi sayısı 1 bayt → 255 dizi → `N ≤ 189`) |
 
-**Karakter kayıt penceresinin "Etkiler" listesi** (`ui.menu`, Lua) her zaman
-`STATES.BAM` yolunu kullanır: her aktif efekt için ikon indeksini alıp
-`STATES.BAM` sequence `indeks + 65`'i çizer:
+**3. kolon, yalnız `N ≥ 191` için değil, *her* indekste `STATES.BAM`'i geçersiz kılar.**
+Vanilla da bunu yapar: `STATDESC` satır 188‑190 (`SPWI417D`, `SPPR150D`, `SPPR750D`) 191'in
+altında olmalarına rağmen özel BAM taşır.
+
+**Kayıt listesindeki** ikonu **UI değil, motor** çözer: her aktif durum için motor,
+çözülmüş BAM ve diziyi içeren bir kayıt verir; vanilla `ui.menu` bunları sadece bağlar:
 
 ```lua
-for k, v in pairs(characters[currentID].statusEffects) do
-    if v.current == 0 then -- haste exception
-        table.insert(listItems, {103, ...})
-    else
-        table.insert(listItems, {v.current, ...})
-    end
-end
+-- karakter kaydı: "statusEffects" listesi (vanilla 2.7)
+bam       lua "statusEffects[rowNumber].bam"      -- col-3 BAM'i ya da 'STATES'
+sequence  lua "statusEffects[rowNumber].current"  -- o BAM içindeki dizi
+text      lua "Infinity_FetchString(statusEffects[rowNumber].strRef)"
 ```
 
-Eğer `STATDESC.2DA` o indeks için 3. sütunda bir BAM taşıyorsa, kayıt ekranı yine
-o BAM'ı çizmeye çalışır ve orada çizemeyince jenerik Haste ikonuna düşer. Bu
-yüzden yalnızca `STATDESC` BAM'ı eklemek sidebar'da görünür ama kayıt penceresinde
-görünmez.
+Bütün "çözüm" bundan ibaret: UI, `index + 65`'i kendisi hesaplamak yerine motora
+*hangi BAM, hangi dizi* diye sorar. Bu yüzden custom `STATDESC` ikonları ve 189 üstü
+indeksler de vanilla'da kayıt ekranında çalışır.
 
-## Çalışan tarif
+## Önerilen tarif (yalnız `STATDESC` 3. kolon)
 
-1. **`0 … 190` aralığında kullanılmayan bir indeks `N` seç.**
-   BG:EE'de `STATDESC.2DA`'nın `160 … 187` satırları kullanılmıyor (`-1 ****`),
-   bu yüzden `N = 160 … 187` güvenlidir. (Bunlar tek çerçeveli durum ikonlarıdır;
-   `STATES.BAM` sequence'lerini değiştirmek gerçek bir durumu etkilemez.)
+1. **13×13 bir BAM ship et.** Durum/portre ikonları küçük, tek dizili BAM'lerdir.
+   Vanilla'nın kendi `STATDESC` BAM'leri **BAMC** (sıkıştırılmış) gelir; tek 13×13
+   frame'li düz `BAM V1` de yüklenir. **Hotbar büyü ikonunu kullanma** (onlar çok daha
+   büyüktür, ör. 90×90 → kocaman çizilir).
+2. **`STATDESC.2DA`'ya bir satır ekle** (ya da boş bir satırı kullan):
+   * 2. kolon = metin strref'in,
+   * 3. kolon = **BAM resref'in** (≤ 8 karakter; birebir kullanılır).
+3. **Efekti ona yönelt:** `opcode 142`, `parameter2 = N`.
 
-2. **Art'ını `STATES.BAM` içine, sequence `N + 65`'e koy.**
-   Yeni bir 13×13 çerçeve ekle ve o sequence'i ona yönlendir. `example/lib/states_icon_add.py`
-   yardımcı script'i bunu otomatik yapar.
+```weidu
+// asgari: STATDESC 3. kolon ile tek custom durum ikonu
+COPY ~mymod/icons/MYICON.bam~ ~override/MYICON.bam~
 
-3. **`STATDESC.2DA`'da `N` satırını ayarla:** 2. sütun = metin strref'in,
-   3. sütun = **`****`** — **boş kalmalı**. (Kritik adım budur.)
-
-4. **Efekti ikona yönlendir:** opcode `142`, `parameter2 = N`.
-
-Böylece ikon hem sidebar'da hem kayıt penceresinde `STATES.BAM`'dan çizilir.
-
-## Araç
-
-`example/lib/states_icon_add.py`, vanilla `STATES.BAM`'a 13×13 çerçeveler ekler ve
-seçilen sequence'leri bunlara yönlendirir:
-
-```bash
-weidu --biff-get states.bam                 # vanilla STATES.BAM'i çıkar
-python3 example/lib/states_icon_add.py states.bam override/states.bam \
-        179:icons/shield.png:3aa0ff  180:icons/spider.png:b400dc
+OUTER_SET my_ref = RESOLVE_STR_REF (@100)   // ör. "Özel Durumum"
+COPY_EXISTING ~statdesc.2da~ ~override~
+  COUNT_2DA_ROWS 3 rows
+  FOR (i = 0; i < rows; i += 1) BEGIN
+    READ_2DA_ENTRY i 0 3 key
+    PATCH_IF (~%key%~ STRING_EQUAL ~186~) BEGIN
+      SET_2DA_ENTRY i 1 3 my_ref
+      SET_2DA_ENTRY i 2 3 ~MYICON~
+    END
+  END
+  PRETTY_PRINT_2DA
+BUT_ONLY
 ```
 
-* PNG'ler 8-bit gri tonlamalı (`colortype 0`) olmalı; 13×13'e indirgenir.
-* İsteğe bağlı `RRGGBB` soneki ikonu renklendirir.
-* Çalışma anında yalnızca üretilen `states.bam` (artı `STATDESC.2DA` satırları ve
-  opcode 142 atamaları) gerekir.
+Vanilla UI ile sonuç: sidebar ✅ + kayıt listesi ✅.
 
-## Basit, formal WeiDU örneği
+## Alternatif tarif (`STATES.BAM`; yalnız eski UI modları için gerekir)
 
-Bkz. [`example/setup-portrait_icon.tp2`](example/setup-portrait_icon.tp2).
+`STATES.BAM`'i sabitleyen bir UI'yi desteklemen gerekiyorsa (aşağıya bak):
+
+* `N ≤ 189` olan boş bir indeks seç (BG:EE'de `160…187` civarı boştur),
+* `STATES.BAM`'e 13×13 frame ekle ve `N + 65` dizisini ona yönelt
+  (`example/lib/states_icon_add.py` bunu yapar),
+* `STATDESC` satır `N` 3. kolonunu **boş (`****`)** bırak,
+* `opcode 142, parameter2 = N`.
+
+Sakıncalar: `N ≤ 189` sert tavanı; **paylaşılan** bir dosyayı ezmen (başka modların
+dizileri kaybolabilir, senden sonra kurulan bir mod seninkini silebilir); kurulum sırası
+bozulursa çalışmaz. `STATDESC` col‑3 yolunda bu sorunların hiçbiri yok.
+
+## Kayıt ikonunu bozan UI modları (ve düzeltmesi)
+
+**Pocket‑play UI++ (PPUI, Pecca)** — telefon/tablet için *total conversion* bir UI
+(ilk sürüm ~Mart 2020; Pecca'nın daha eski *Dragonspear UI++*'ından miras alır). Oyunun
+UI'sini patch'lemez: **kendi komple `UI.MENU`'sunu** getirir; tabanı **2.6 yaması
+öncesi**dir. Sonuçlar:
+
+* kayıt listesi `bam 'STATES'` diye **sabitler** ve motorun dizisini sequence olarak verir
+  → her `STATDESC` col‑3 ikonu (ve `N ≥ 190`) kayıt ekranında ikonunu kaybeder;
+* dosyada ayrıca `v.current == 0 → sequence 103 çiz` özel durumu vardır; etkilenen
+  ikonların kayıt ekranında **Haste** ikonu göstermesinin sebebi budur;
+* `.bam`'e dayalı yeni liste o dosyada hâlâ mevcuttur ama **yorum satırıdır**.
+
+Kanıt: vanilla 2.7 `ui.menu` 474.758 bayt ve `bam lua "statusEffects[rowNumber].bam"`
+kullanır; PPUI'ninki 619.334 bayt, `bam 'STATES'` kullanır ve vanilla'da olan yeni
+API'lerden yoksundur (`Infinity_ClipboardCopy`, `Infinity_GetFileExists`).
+
+**Düzeltme (PPUI'nin `UI.MENU`'sunda 3 değişiklik)** — birleşik listeyi motorun `bam`
+alanına bağla:
+
+```weidu
+COPY_EXISTING ~UI.MENU~ ~override~
+  // efekt başına BAM'i satır verisine koy (yalnız status satırları)
+  REPLACE_TEXTUALLY ~table.insert(listItems, {103, '    ' .. Infinity_FetchString(v.strRef)})~
+                    ~table.insert(listItems, {103, '    ' .. Infinity_FetchString(v.strRef), v.bam})~
+  REPLACE_TEXTUALLY ~table.insert(listItems, {v.current, '    ' .. Infinity_FetchString(v.strRef)})~
+                    ~table.insert(listItems, {v.current, '    ' .. Infinity_FetchString(v.strRef), v.bam})~
+  // ikon kolonunda onu kullan (ikonsuz satırlar STATES'e düşsün)
+  REPLACE_TEXTUALLY ~bam            'STATES'~
+                    ~bam lua "listItems[rowNumber][3] or 'STATES'"~
+  BUT_ONLY
+```
+
+(Yedek tut; yama **PPUI'den sonra** kurulmalıdır. Daha iyisi: mod yazarına bildir —
+düzeltmenin ihtiyaç duyduğu veriyi motor zaten veriyor.)
 
 ## Sınırlar ve deneysel bulgular
 
-Aşağıdakiler, motorun gerçek sınırlarını ölçen testlerin sonucudur (BG:EE v2.7.3.2).
+Aksi belirtilmedikçe BG:EE v2.7.3.2 ve **vanilla** UI ile test edildi.
 
-### 1) İndeks çözümü ve sınır tablosu
+### 1) İndeks çözümü
 
-| Yol | Biçim | Max indeks | Sidebar (portre) | Kayıt ekranı ("Etkiler") |
-|-----|-------|-----------|------------------|--------------------------|
-| `STATES.BAM` | V1 (inline piksel) | **189** | ✅ | ✅ |
-| `STATDESC.2DA` 3. kolon BAM | herhangi | yüksek (600 test edildi) | ✅ | ❌ Haste'e düşer |
-| `STATES.BAM` | V2 (PVRZ doku) | ~600+ (teorik) | ? | ? (test edilemedi) |
+| Yol | Format | Maks indeks | Sidebar | Kayıt ("Etkiler") |
+|-----|--------|-------------|---------|-------------------|
+| `STATES.BAM` (col‑3 BAM yok) | V1 (gömülü piksel) | **189** | ✅ | ✅ |
+| `STATDESC` col‑3 BAM | BAMC veya BAM V1 | pratikte sınır yok | ✅ | ✅ **vanilla'da**; `STATES` sabitleyen UI'larda ❌ (yukarıya bak) |
+| `STATES.BAM` | V2 (PVRZ doku) | ~600+ (teorik) | ? | ? (denenmedi) |
 
-### 2) `STATES.BAM` neden 189'da bitiyor
+### 2) `STATES.BAM` neden 189'da duruyor
 
-- BAM **V1** başlığında dizi (cycle) sayısı `0x0A` offsetinde **1 byte**'tır → en çok **255 dizi**.
-- İkon eşlemesi `dizi = N + 65` olduğundan `N + 65 ≤ 254` → **`N ≤ 189`**.
-- Vanilla `ui.menu` (bkz. `PATCH20.BIF`) kayıt ekranında **her zaman** `states.bam` dizi
-  `index + 65`'i ister; `N ≥ 190` için o dizi yok → jenerik Haste ikonu.
+* BAM **V1** başlığında dizi sayısı `0x0A`'da **tek bayt**tır → en fazla **255 dizi**.
+* İkonlar dizi `N + 65`'e eşlendiği için `N + 65 ≤ 254` → **`N ≤ 189`** (doğrulandı:
+  indeks 78 → dizi 143).
+* `STATDESC` col‑3 BAM varsa indeks önemsizdir — `STATES.BAM`'e hiç bakılmaz.
 
-### 3) `STATDESC` BAM yolu (yalnız sidebar)
+### 3) `STATDESC` BAM yolu
 
-- `opcode 142, parameter2 = N` ve `N ≥ 191` → sidebar `STATDESC.2DA` 3. kolondaki BAM'ı çizer.
-- **Test:** 160…600 arası ayrı ikonlar sidebar'da **sorunsuz göründü**; `STATDESC.2DA`
-  600 satıra kadar uzatıldı, **çökme olmadı**. Kayıt ekranı bu yolu kullanmaz (Haste).
-- `STATDESC.2DA`'ya yalnızca satır eklemek (ikon olmadan) da güvenlidir (601 satır test edildi).
+* 3. kolondaki ad **birebir** kullanılır — SPL ikonlarından farklı olarak motor son
+  harfi **değiştirmez** (`B`/`C` varyantları gerekmez).
+* Metin/ikonun anlamlı olması için `STATDESC` satırı `N` **var olmalıdır** (satır no = indeks).
+* Vanilla bu yolu büyüye özel durumlar için kullanır (`SPWI417D`, `SPPR150D`,
+  `SPPR750D`, `BOOT01D`, `dwicon1`) ve Shaman'a özel ikonlar için.
 
-### 4) BAM V2 neden şimdilik çözüm değil
+### 4) BAM V2 neden henüz çözüm değil
 
-- BAM **V2** başlığında dizi sayısı **dword**'dür → 255 üstü diziler mümkündür.
-- Ancak V2 çerçeveleri **PVRZ** dokularına (`MOSxxxx.PVRZ`) başvurur; inline piksel yoktur.
-  Bu yüzden V2 bir `STATES.BAM` üretmek **PVR (PVRTC/ETC) encoder** gerektirir. Test edilmedi.
+* **BAM V2** başlığı dizi sayısını **dword** tutar → teorik olarak >255 dizi mümkündür;
+  ama V2 frame'leri **PVRZ** dokuya başvurur ve PVR (PVRTC/ETC) encoder gerekir. Burada
+  denenmedi.
 
 ### 5) Pratik sonuç
 
-- İkonun **hem sidebar hem kayıt ekranında** görünmesi için: ikonu `STATES.BAM`'e
-  `dizi N+65` olarak koy ve `STATDESC.2DA` satır `N`'in 3. sütununu **`****` bırak**.
-- Kullanılabilir güvenli aralık: **`160 … 189`** (önerilen: `164 … 189`, çünkü
-  `160…163` ve `188…189` belirli kurulumlarda dolu olabilir) → **~26 ikon**.
+* **Tercih edilen:** `STATDESC` col‑3 + kendi 13×13 BAM'in → sidebar ✅ kayıt ✅, paylaşılan
+  dosyaya dokunulmaz, indeks tavanı yok.
+* **Yalnız bir UI modu zorluyorsa:** `STATES.BAM` `N + 65`'e, col‑3 boş, `N ≤ 189`.
+* Kayıt ikonu görünmüyorsa: aktif `UI.MENU` `statusEffects[rowNumber].bam` kullanıyor mu
+  (sorun yok) yoksa `bam 'STATES'` sabitliyor mu (bozuk) — bunu kontrol et.
 
 ### 6) İlgili notlar
 
-- **Resref'ler en fazla 8 karakterdir** (SPL/BAM/…). Daha uzun adlar motoru çökertir.
-- Bu depodaki `states_icon_add.py`, tek renk yerine **çok tonlu (ramp)** ikonları da
-  destekleyecek şekilde genişletilebilir; ramp için ikon başına birkaç palet slotu
-  ayrılır (vanilla `STATES.BAM`'de ~179 boş slot vardır).
+* **Resref'ler 8 karakterle sınırlıdır** (SPL/BAM/…); daha uzun adlar motoru çökertir.
+* Buradaki `states_icon_add.py`, tek renk yerine **çok tonlu (ramp)** ikonları da
+  destekleyecek şekilde genişletilebilir; ramp ikon başına birkaç palet slotu ayırır
+  (vanilla `STATES.BAM`'de ~179 boş slot var).
 
 ## Dosyalar
 
 ```
 example/
-  setup-portrait_icon.tp2   yöntemi gösteren minimal WeiDU bileşeni
-  lib/states_icon_add.py    STATES.BAM çerçeve/sequence yardımcısı
-  icons/                    örnek 13x13 kaynak art (gri tonlamalı PNG)
+  setup-portrait_icon.tp2   STATES.BAM yöntemini gösteren asgari WeiDU bileşeni
+  lib/states_icon_add.py    STATES.BAM frame/dizi yardımcısı
+  icons/                    örnek 13x13 kaynak sanat (gri tonlu PNG)
 ```
 
 ## Lisans
 
 MIT — bkz. [`LICENSE`](LICENSE). `example/icons/` içindeki örnek ikonlar
-[game‑icons.net](https://game-icons.net) kaynaklıdır (CC BY 3.0); bkz.
-`example/icons/CREDITS.txt`.
+[game‑icons.net](https://game-icons.net) (CC BY 3.0); bkz. `example/icons/CREDITS.txt`.

@@ -1,145 +1,188 @@
 # Custom portrait icons in Baldur's Gate: Enhanced Edition
 
-### …that appear on **both** the sidebar **and** the character‑record "Affects" list.
+### …that appear on **both** the sidebar **and** the character‑record "Affects" list — *without* touching `STATES.BAM`.
 
 Turkish version: [`README.tr.md`](README.tr.md)
 
 ---
 
-## The problem
+## Summary
 
-Adding a custom portrait icon the "usual" way (a BAM in `STATDESC.2DA`, column 3)
-makes the icon show up **next to the portrait / on the sidebar**, but the
-**character‑record screen** keeps drawing a generic icon (Haste). Many mods —
-including large ones — live with this limitation. This repository documents the
-mechanism and a small recipe that makes custom icons work in **both** places.
+A custom portrait/state icon can be added with **`STATDESC.2DA` alone**: put your own
+BAM in the row's 3rd column and point an effect's `opcode 142` at that row. In the
+**vanilla UI** the icon then shows **both** next to the portrait (sidebar) **and** in
+the character‑record "Affects" list. No `STATES.BAM` editing is required — so there is
+no 255‑sequence ceiling and no risk of overwriting a file other mods also patch.
+
+The widely‑repeated claim *"a custom icon shows on the sidebar but not in the record
+screen"* is **not a vanilla limitation**. It is caused by **UI‑replacement mods** that
+ship their own, older `UI.MENU` and hardcode `STATES.BAM` for that list. One such mod
+is documented below, together with a 3‑line fix.
 
 ## How the engine resolves a portrait icon
 
 A portrait icon is requested by an effect with **opcode `142`**, where
-`parameter2 = N` is the icon index. The engine resolves `N` from two sources:
+`parameter2 = N` is the icon index. For a given index `N`:
 
-| index `N`      | drawn from |
-|----------------|------------|
-| `0 … 190`      | `STATES.BAM`, **sequence `N + 65`** |
-| `191 …`        | the BAM named in `STATDESC.2DA`, column 3 (`BAM_FILE`) |
+| Condition | Icon drawn from |
+|-----------|-----------------|
+| `STATDESC.2DA` row `N`, column 3 names a BAM | **that BAM** — used **as‑is** (no character rewriting). Works for **any** `N`. |
+| column 3 is empty (`****`) | `STATES.BAM`, **cycle `N + 65`** (BAM V1: 1‑byte cycle count → 255 cycles → `N ≤ 189`) |
 
-The **character‑record "Affects" list** (`ui.menu`, Lua) always uses the
-`STATES.BAM` path: for every active effect it takes the icon index and draws
-`STATES.BAM` sequence `index + 65`:
+**The 3rd column overrides `STATES.BAM` for any index, not only for `N ≥ 191`.** Vanilla
+itself does this: `STATDESC` rows 188‑190 (`SPWI417D`, `SPPR150D`, `SPPR750D`) carry
+custom BAMs even though they are below 191.
+
+The icon in the **record list** is resolved by the **engine, not the UI**: for every
+active state the engine exposes a record with the *already resolved* BAM and cycle,
+and the vanilla `ui.menu` simply binds them:
 
 ```lua
-for k, v in pairs(characters[currentID].statusEffects) do
-    if v.current == 0 then -- haste exception
-        table.insert(listItems, {103, ...})
-    else
-        table.insert(listItems, {v.current, ...})
-    end
-end
+-- character record: "statusEffects" list (vanilla 2.7)
+bam       lua "statusEffects[rowNumber].bam"      -- the col-3 BAM, or 'STATES'
+sequence  lua "statusEffects[rowNumber].current"  -- the cycle inside that BAM
+text      lua "Infinity_FetchString(statusEffects[rowNumber].strRef)"
 ```
 
-If `STATDESC.2DA` holds a BAM in column 3 for that index, the record screen still
-tries that BAM and, when it cannot render it there, falls back to the generic
-Haste icon. That is exactly why a `STATDESC` BAM alone shows on the sidebar but
-not in the record.
+That is the whole "fix": the UI asks the engine *which* BAM and *which* cycle to use
+instead of computing `index + 65` itself. Because of this, custom `STATDESC` icons and
+indices above 189 work in the record screen too, in vanilla.
 
-## The working recipe
+## Recommended recipe (`STATDESC` column 3 only)
 
-1. **Pick an unused index `N` in the range `0 … 190`.**
-   In BG:EE the rows `160 … 187` of `STATDESC.2DA` are unused (`-1 ****`), so
-   `N = 160 … 187` is safe. (These are single‑frame status icons, so overwriting
-   their `STATES.BAM` sequence does not affect any real state.)
+1. **Ship a 13×13 BAM.** State/portrait icons are small single‑cycle BAMs. Vanilla's
+   own `STATDESC` BAMs are shipped as **BAMC** (compressed BAM); a plain
+   `BAM V1` file with one 13×13 frame also loads. Do **not** reuse a hotbar spell
+   icon (those are much larger — e.g. 90×90 — and will be drawn huge).
+2. **Add one row to `STATDESC.2DA`** (or reuse an unused one):
+   * column 2 = your text strref,
+   * column 3 = **your BAM resref** (≤ 8 chars, used exactly as written).
+3. **Point the effect at it:** `opcode 142`, `parameter2 = N`.
 
-2. **Put your art inside `STATES.BAM` at sequence `N + 65`.**
-   Append a new 13×13 frame and repoint that sequence to it. The helper
-   `example/lib/states_icon_add.py` does this automatically.
+```weidu
+// minimal: one custom state icon via STATDESC column 3
+COPY ~mymod/icons/MYICON.bam~ ~override/MYICON.bam~
 
-3. **In `STATDESC.2DA` set row `N`:** column 2 = your text strref,
-   column 3 = **`****`** — it **must stay empty**. (This is the crucial step.)
-
-4. **Point the effect at the icon:** opcode `142`, `parameter2 = N`.
-
-The icon is then drawn from `STATES.BAM` on the sidebar **and** in the record.
-
-## Tooling
-
-`example/lib/states_icon_add.py` appends 13×13 frames to a vanilla `STATES.BAM`
-and repoints the chosen sequences:
-
-```bash
-weidu --biff-get states.bam                 # extract the vanilla STATES.BAM
-python3 example/lib/states_icon_add.py states.bam override/states.bam \
-        179:icons/shield.png:3aa0ff  180:icons/spider.png:b400dc
+OUTER_SET my_ref = RESOLVE_STR_REF (@100)   // e.g. "My Custom State"
+COPY_EXISTING ~statdesc.2da~ ~override~
+  COUNT_2DA_ROWS 3 rows
+  FOR (i = 0; i < rows; i += 1) BEGIN
+    READ_2DA_ENTRY i 0 3 key
+    PATCH_IF (~%key%~ STRING_EQUAL ~186~) BEGIN
+      SET_2DA_ENTRY i 1 3 my_ref
+      SET_2DA_ENTRY i 2 3 ~MYICON~
+    END
+  END
+  PRETTY_PRINT_2DA
+BUT_ONLY
 ```
 
-* The PNGs must be 8‑bit grayscale (`colortype 0`); they are downscaled to 13×13.
-* The optional `RRGGBB` suffix tints the icon.
-* Only the produced `states.bam` (plus the `STATDESC.2DA` rows and the opcode 142
-  assignments) is needed at runtime.
+Result with the vanilla UI: sidebar ✅ + record list ✅.
 
-## Minimal, formal WeiDU example
+## Alternative recipe (`STATES.BAM`, only needed for older UI mods)
 
-See [`example/setup-portrait_icon.tp2`](example/setup-portrait_icon.tp2).
+If you must support a UI that hardcodes `STATES.BAM` (see below):
+
+* pick an unused index `N ≤ 189` (in BG:EE the rows around `160…187` are unused),
+* append a 13×13 frame to `STATES.BAM` and repoint sequence `N + 65`
+  (`example/lib/states_icon_add.py` does this),
+* keep `STATDESC` row `N` column 3 **empty (`****`)**,
+* `opcode 142, parameter2 = N`.
+
+Caveats: hard ceiling at `N ≤ 189`; you are rewriting a **shared** file (other mods'
+sequences can be lost, and a mod installed after you can erase yours); it breaks if
+the install order changes. The `STATDESC` col‑3 route has none of these problems.
+
+## UI mods that break the record icon (and the fix)
+
+**Pocket‑play UI++ (PPUI, by Pecca)** — a *total conversion* UI for phones/tablets
+(first release ~March 2020; it inherits from Pecca's older *Dragonspear UI++*). It does
+not patch the game's UI: it **ships its own complete `UI.MENU`**, built on a
+**pre‑patch‑2.6** base. Consequences:
+
+* its record list **hardcodes** `bam 'STATES'` and passes the engine's cycle as the
+  sequence, so any `STATDESC` col‑3 icon (and any index ≥ 190) loses its icon there;
+* it also contains a `v.current == 0 → draw sequence 103` special case, which is why
+  affected icons show the **Haste** icon in the record screen;
+* the newer `.bam`‑based list still exists in that file, but **commented out**.
+
+Evidence: the vanilla 2.7 `ui.menu` is 474,758 bytes and uses
+`bam lua "statusEffects[rowNumber].bam"`; PPUI's is 619,334 bytes, uses
+`bam 'STATES'`, and lacks newer APIs present in vanilla (`Infinity_ClipboardCopy`,
+`Infinity_GetFileExists`).
+
+**Fix (3 replacements in PPUI's `UI.MENU`)** — route the merged list through the
+engine's `bam` field:
+
+```weidu
+COPY_EXISTING ~UI.MENU~ ~override~
+  // push the per-effect BAM into the row data (status rows only)
+  REPLACE_TEXTUALLY ~table.insert(listItems, {103, '    ' .. Infinity_FetchString(v.strRef)})~
+                    ~table.insert(listItems, {103, '    ' .. Infinity_FetchString(v.strRef), v.bam})~
+  REPLACE_TEXTUALLY ~table.insert(listItems, {v.current, '    ' .. Infinity_FetchString(v.strRef)})~
+                    ~table.insert(listItems, {v.current, '    ' .. Infinity_FetchString(v.strRef), v.bam})~
+  // use it for the icon column (fall back to STATES for non-icon rows)
+  REPLACE_TEXTUALLY ~bam            'STATES'~
+                    ~bam lua "listItems[rowNumber][3] or 'STATES'"~
+  BUT_ONLY
+```
+
+(Keep a backup; the patch must be installed **after** PPUI. Better still: report it to
+the mod author — the data the fix needs is already exposed by the engine.)
 
 ## Limits and experimental findings
 
-Everything below is the result of tests that probe the engine's actual limits
-(BG:EE v2.7.3.2).
+Tested on BG:EE v2.7.3.2 with the **vanilla** UI unless noted.
 
-### 1) Index resolution and limit table
+### 1) Index resolution
 
-| Path | Format | Max index | Sidebar (portrait) | Record ("Affects") |
-|------|--------|-----------|--------------------|--------------------|
-| `STATES.BAM` | V1 (inline pixels) | **189** | ✅ | ✅ |
-| `STATDESC.2DA` col-3 BAM | any | high (tested to 600) | ✅ | ❌ falls back to Haste |
+| Path | Format | Max index | Sidebar | Record ("Affects") |
+|------|--------|-----------|---------|--------------------|
+| `STATES.BAM` (no col‑3 BAM) | V1 (inline pixels) | **189** | ✅ | ✅ |
+| `STATDESC` col‑3 BAM | BAMC or BAM V1 | no practical limit | ✅ | ✅ **in vanilla**; ❌ with UIs that hardcode `STATES` (see above) |
 | `STATES.BAM` | V2 (PVRZ texture) | ~600+ (theoretical) | ? | ? (untested) |
 
 ### 2) Why `STATES.BAM` stops at 189
 
-- In a **BAM V1** header the cycle (sequence) count is a **single byte** at `0x0A`
-  → at most **255 sequences**.
-- Since icons map to sequence `N + 65`, `N + 65 ≤ 254` → **`N ≤ 189`**.
-- The vanilla `ui.menu` (see `PATCH20.BIF`) always asks the record screen for
-  `states.bam` sequence `index + 65`; for `N ≥ 190` that sequence does not exist
-  → generic Haste icon.
+* A BAM **V1** header stores the cycle (sequence) count in a **single byte** at `0x0A`
+  → at most **255 cycles**.
+* Since icons map to cycle `N + 65`, `N + 65 ≤ 254` → **`N ≤ 189`** (verified: index 78
+  draws cycle 143).
+* With a `STATDESC` col‑3 BAM the index is irrelevant — `STATES.BAM` is not consulted.
 
-### 3) The `STATDESC` BAM path (sidebar only)
+### 3) The `STATDESC` BAM path
 
-- `opcode 142, parameter2 = N` with `N ≥ 191` makes the **sidebar** draw the BAM
-  named in `STATDESC.2DA` column 3.
-- **Test:** distinct icons at indices 160…600 all rendered **without issues** on
-  the sidebar; `STATDESC.2DA` was extended to 600 rows with **no crash**. The
-  record screen does not use this path (shows Haste instead).
-- Adding rows to `STATDESC.2DA` alone (without icons) is also safe (tested to 601 rows).
+* The col‑3 name is used **verbatim** — unlike SPL icons, the engine does **not**
+  rewrite the last character (no `B`/`C` variants needed).
+* `STATDESC` row `N` must **exist** for the text/icon to be meaningful (row number = index).
+* Vanilla uses this path for spell‑specific states (e.g. `SPWI417D`, `SPPR150D`,
+  `SPPR750D`, `BOOT01D`, `dwicon1`) and for Shaman‑specific icons.
 
 ### 4) Why BAM V2 is not a solution yet
 
-- A **BAM V2** header stores the cycle count as a **dword** → >255 sequences are
-  possible in principle.
-- However V2 frames reference **PVRZ** textures (`MOSxxxx.PVRZ`); there are no
-  inline pixels. Producing a V2 `STATES.BAM` therefore needs a **PVR
-  (PVRTC/ETC) encoder**. Not tested here.
+* A **BAM V2** header stores the cycle count as a **dword** → >255 cycles are possible
+  in principle, but V2 frames reference **PVRZ** textures and need a PVR
+  (PVRTC/ETC) encoder. Not tested here.
 
 ### 5) Practical conclusion
 
-- To make an icon appear in **both** the sidebar and the record screen: put the
-  art in `STATES.BAM` at sequence `N+65` and keep `STATDESC.2DA` row `N` column 3
-  **empty (`****`)**.
-- Safe usable range: **`160 … 189`** (recommended: `164 … 189`, since `160…163`
-  and `188…189` may be occupied in some setups) → **~26 icons**.
+* **Preferred:** `STATDESC` col‑3 + your own 13×13 BAM → sidebar ✅ record ✅, no shared
+  file touched, no index ceiling.
+* **Only if a UI mod forces it:** `STATES.BAM` at `N + 65` with col‑3 empty, `N ≤ 189`.
+* Diagnosing a missing record icon: check whether the active `UI.MENU` uses
+  `statusEffects[rowNumber].bam` (fine) or hardcodes `bam 'STATES'` (broken).
 
 ### 6) Related notes
 
-- **Resrefs are limited to 8 characters** (SPL/BAM/…); longer names crash the engine.
-- The `states_icon_add.py` here can be extended to support **multi-tone (ramp)**
-  icons instead of a single colour; a ramp allocates a few palette slots per icon
-  (the vanilla `STATES.BAM` has ~179 free slots).
+* **Resrefs are limited to 8 characters** (SPL/BAM/…); longer names crash the engine.
+* The `states_icon_add.py` here can be extended to **multi‑tone (ramp)** icons; a ramp
+  allocates a few palette slots per icon (the vanilla `STATES.BAM` has ~179 free slots).
 
 ## Files
 
 ```
 example/
-  setup-portrait_icon.tp2   minimal WeiDU component demonstrating the method
+  setup-portrait_icon.tp2   minimal WeiDU component demonstrating the STATES.BAM method
   lib/states_icon_add.py    STATES.BAM frame/sequence helper
   icons/                    example 13x13 source art (grayscale PNG)
 ```
