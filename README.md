@@ -4,6 +4,8 @@
 
 Turkish version: [`README.tr.md`](README.tr.md)
 
+Deep dive (case study: the PPUI record-list icon bug, measurements and every fix): [`docs/ppui-record-icons.md`](docs/ppui-record-icons.md)
+
 ---
 
 ## Summary

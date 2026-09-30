@@ -4,6 +4,8 @@
 
 İngilizce sürüm: [`README.md`](README.md)
 
+Ayrıntılı inceleme (vaka kaydı: PPUI kayıt listesi ikon hatası, ölçümler ve tüm çözümler): [`docs/ppui-record-icons.tr.md`](docs/ppui-record-icons.tr.md)
+
 ---
 
 ## Özet
